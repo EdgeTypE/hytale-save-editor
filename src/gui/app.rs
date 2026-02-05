@@ -2,6 +2,17 @@ use eframe::egui;
 use std::path::PathBuf;
 use crate::models::*;
 
+// New Struct for Save Summary
+pub struct SaveSummary {
+    pub folder_name: String,
+    pub path: PathBuf,
+    pub display_name: String, // From config or folder name
+    pub preview_path: Option<PathBuf>,
+    pub last_modified: std::time::SystemTime,
+    pub preview_image_data: Option<egui::ColorImage>,
+    pub texture_handle: Option<egui::TextureHandle>,
+}
+
 // Removed derive(Default) because Sender doesn't implement it
 pub struct HytaleSaveEditor {
     pub current_path: Option<PathBuf>,
@@ -41,6 +52,9 @@ pub struct HytaleSaveEditor {
     
     // Asset Manager
     pub asset_manager: crate::assets::AssetManager,
+    
+    // Auto-detected saves
+    pub available_saves: Vec<SaveSummary>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -92,17 +106,96 @@ impl HytaleSaveEditor {
             api_tx,
             api_rx,
             asset_manager: crate::assets::AssetManager::new(),
+            available_saves: Self::detect_saves(),
         }
     }
 
-    fn open_folder_dialog(&mut self) {
+    fn detect_saves() -> Vec<SaveSummary> {
+        let mut saves = Vec::new();
+        if let Some(roaming) = dirs::config_dir() {
+            let hytale_saves = roaming.join("Hytale").join("UserData").join("Saves");
+            if hytale_saves.exists() {
+                 if let Ok(entries) = std::fs::read_dir(hytale_saves) {
+                     for entry in entries.flatten() {
+                         if entry.path().is_dir() {
+                             if let Some(name) = entry.file_name().to_str() {
+                                 let path = entry.path();
+                                 let mut display_name = name.to_string();
+                                 let mut preview_path = None;
+                                 let mut last_modified = std::time::SystemTime::UNIX_EPOCH;
+
+                                 // Get modification time
+                                 if let Ok(metadata) = std::fs::metadata(&path) {
+                                     if let Ok(modified) = metadata.modified() {
+                                         last_modified = modified;
+                                     }
+                                 }
+
+                                 // Try to find display Name in universe/worlds/*/config.json
+                                 let worlds_path = path.join("universe").join("worlds");
+                                 if let Ok(world_entries) = std::fs::read_dir(worlds_path) {
+                                     for w_entry in world_entries.flatten() {
+                                         if w_entry.path().is_dir() {
+                                              let config_path = w_entry.path().join("config.json");
+                                              if let Some(first_world_config) = load_json::<world::WorldConfig>(config_path) {
+                                                  display_name = first_world_config.display_name;
+                                                  break; // Found one
+                                              }
+                                         }
+                                     }
+                                 }
+
+                                 // Check for preview.png at root
+                                 let p_path = path.join("preview.png");
+                                 let mut preview_image_data = None;
+                                 if p_path.exists() {
+                                     preview_image_data = Self::load_image_data(&p_path);
+                                     preview_path = Some(p_path);
+                                 }
+
+                                 saves.push(SaveSummary {
+                                     folder_name: name.to_string(),
+                                     path,
+                                     display_name,
+                                     preview_path,
+                                     last_modified,
+                                     preview_image_data,
+                                     texture_handle: None,
+                                 });
+                             }
+                         }
+                     }
+                 }
+            }
+        }
+        // Sort by last modified (descending)
+        saves.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+        saves
+    }
+
+    fn load_image_data(path: &PathBuf) -> Option<egui::ColorImage> {
+        if let Ok(image_reader) = image::ImageReader::open(path) {
+            if let Ok(image) = image_reader.decode() {
+                let size = [image.width() as usize, image.height() as usize];
+                let image_buffer = image.to_rgba8();
+                let pixels = image_buffer.as_flat_samples();
+                return Some(egui::ColorImage::from_rgba_unmultiplied(
+                    size,
+                    pixels.as_slice(),
+                ));
+            }
+        }
+        None
+    }
+
+    pub fn open_folder_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new().pick_folder() {
              self.current_path = Some(path.clone());
              self.load_data(path);
         }
     }
 
-    fn load_data(&mut self, path: PathBuf) {
+    pub fn load_data(&mut self, path: PathBuf) {
         self.permissions = load_json(path.join("permissions.json"));
         self.mods_config = load_json(path.join("config.json"));
         self.whitelist = load_json(path.join("whitelist.json")).or(Some(Default::default()));
@@ -112,8 +205,7 @@ impl HytaleSaveEditor {
         self.memories = load_json(path.join("universe").join("memories.json"));
 
         // Load Players
-        let players_path = path.join("universe").join("players"); // Correct path based on prompt: x/universe/players/uuid.json (wait, prompt says universe/players/uuid.json, usually it's universe/players/<uuid>.json. Ah, prompt says x/universe/players/uuid.json but then listing shows 60ba....json. So it's a directory of jsons)
-        // Adjusting logic to scan directory.
+        let players_path = path.join("universe").join("players"); 
         if let Ok(entries) = std::fs::read_dir(&players_path) {
             let mut players = std::collections::HashMap::new();
             for entry in entries.flatten() {
@@ -222,7 +314,7 @@ impl HytaleSaveEditor {
             }
         }
     }
-    fn save_data(&self) {
+    pub fn save_data(&self) {
         if let Some(path) = &self.current_path {
             if let Some(permissions) = &self.permissions {
                 save_json(path.join("permissions.json"), permissions);
@@ -297,6 +389,15 @@ impl eframe::App for HytaleSaveEditor {
         // Load texture if data is pending
         if let Some(data) = self.preview_image_data.take() {
             self.preview_image = Some(ctx.load_texture("preview", data, Default::default()));
+        }
+
+        // Load Save Summary Textures
+        for save in &mut self.available_saves {
+             if save.texture_handle.is_none() {
+                 if let Some(data) = save.preview_image_data.take() {
+                      save.texture_handle = Some(ctx.load_texture(&save.folder_name, data, Default::default()));
+                 }
+             }
         }
 
         // Handle Async Events
