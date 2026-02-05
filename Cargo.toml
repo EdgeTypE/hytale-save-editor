@@ -1,0 +1,12 @@
+[package]
+name = "hytale-save-editor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = { version = "0.30", features = ["default", "persistence"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rfd = "0.15"
+image = { version = "0.25", features = ["jpeg", "png"] }
+egui_extras = { version = "0.30", features = ["all_loaders"] }

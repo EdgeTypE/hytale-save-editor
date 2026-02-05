@@ -1,0 +1,13 @@
+{
+  "Components": {
+    "Nameplate": { "Text": "edgetype" },
+    "Player": {
+      "Version": 5,
+      "GameMode": "Adventure",
+      "Inventory": {
+        "Storage": { "Id": "Simple", "Capacity": 36, "Items": {} },
+        "HotBar": { "Id": "Simple", "Capacity": 9, "Items": {} }
+      }
+    }
+  }
+}
