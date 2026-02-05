@@ -22,6 +22,16 @@ pub struct HytaleSaveEditor {
     // Preview image
     pub preview_image: Option<egui::TextureHandle>,
     pub preview_image_data: Option<egui::ColorImage>,
+    
+    // API Cache
+    pub profile_cache: crate::api::ProfileCache,
+    pub avatar_textures: std::collections::HashMap<String, egui::TextureHandle>,
+    
+    // UI State
+    pub new_op_input: String,
+    
+    // Mods manifests
+    pub manifests: std::collections::HashMap<String, manifest::ModManifest>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -49,7 +59,13 @@ impl HytaleSaveEditor {
         // Ensure image support
         egui_extras::install_image_loaders(&_cc.egui_ctx);
 
-        Self::default()
+        Self {
+            profile_cache: crate::api::ProfileCache::default(),
+            avatar_textures: std::collections::HashMap::new(),
+            new_op_input: String::new(),
+            manifests: std::collections::HashMap::new(),
+            ..Default::default()
+        }
     }
 
     fn open_folder_dialog(&mut self) {
@@ -108,6 +124,60 @@ impl HytaleSaveEditor {
         
         // Load Preview Image
         self.load_preview_image(path.join("preview.png"));
+        
+        // Load Mod Manifests
+        self.load_manifests(path.clone());
+    }
+    
+    fn load_manifests(&mut self, save_path: PathBuf) {
+        // Assume structure: .../Hytale/UserData/Saves/SaveName -> save_path
+        // Mods should be at: .../Hytale/UserData/Mods
+        
+        // This logic is a bit heuristic. We go up twice.
+        // If the structure is strictly maintained:
+        if let Some(user_data) = save_path.parent().and_then(|p| p.parent()) {
+            let mods_path = user_data.join("Mods");
+            if mods_path.exists() && mods_path.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(mods_path) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                            // Open jar
+                            if let Ok(file) = std::fs::File::open(&path) {
+                                if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                                    // Try manifest.json first, then hytale.json
+                                    let mut content = None;
+                                    
+                                    // Check manifest.json first
+                                    if let Ok(mut file) = archive.by_name("manifest.json") {
+                                        let mut s = String::new();
+                                        if std::io::Read::read_to_string(&mut file, &mut s).is_ok() {
+                                            content = Some(s);
+                                        }
+                                    }
+                                    
+                                    // If not found, check hytale.json
+                                    if content.is_none() {
+                                         if let Ok(mut file) = archive.by_name("hytale.json") {
+                                             let mut s = String::new();
+                                             if std::io::Read::read_to_string(&mut file, &mut s).is_ok() {
+                                                 content = Some(s);
+                                             }
+                                         }
+                                    }
+                                    
+                                    if let Some(content) = content {
+                                        if let Ok(manifest) = serde_json::from_str::<manifest::ModManifest>(&content) {
+                                            self.manifests.insert(manifest.id(), manifest);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn load_preview_image(&mut self, path: PathBuf) {
@@ -199,6 +269,19 @@ impl eframe::App for HytaleSaveEditor {
         // Load texture if data is pending
         if let Some(data) = self.preview_image_data.take() {
             self.preview_image = Some(ctx.load_texture("preview", data, Default::default()));
+        }
+        
+        // Process loaded avatars
+        let mut avatars_to_load = Vec::new();
+        if let Ok(mut avatars) = self.profile_cache.avatars.lock() {
+            for (uuid, data) in avatars.iter_mut() {
+                if let Some(image) = data.take() {
+                    avatars_to_load.push((uuid.clone(), image));
+                }
+            }
+        }
+        for (uuid, image) in avatars_to_load {
+            self.avatar_textures.insert(uuid.clone(), ctx.load_texture(&uuid, image, Default::default()));
         }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {

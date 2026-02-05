@@ -110,11 +110,11 @@ pub struct Inventory {
     pub backpack: Option<Storage>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Storage {
-    #[serde(rename = "Id")]
-    pub id: String, // Added Id since it was likely missing due to flattening or simple oversight. Actually user sample shows Id "Simple".
-    #[serde(rename = "Capacity")]
+    #[serde(rename = "Id", default)]
+    pub id: String,
+    #[serde(rename = "Capacity", default)]
     pub capacity: i32,
     #[serde(rename = "Items", default)]
     pub items: HashMap<String, Item>,

@@ -2,6 +2,7 @@
 
 mod models;
 mod gui;
+mod api;
 
 use eframe::egui;
 

@@ -6,3 +6,4 @@ pub mod client_metadata;
 pub mod memories;
 pub mod player;
 pub mod world;
+pub mod manifest;
