@@ -2,7 +2,7 @@ use eframe::egui;
 use std::path::PathBuf;
 use crate::models::*;
 
-#[derive(Default)]
+// Removed derive(Default) because Sender doesn't implement it
 pub struct HytaleSaveEditor {
     pub current_path: Option<PathBuf>,
     pub active_tab: Tab,
@@ -29,9 +29,18 @@ pub struct HytaleSaveEditor {
     
     // UI State
     pub new_op_input: String,
+    pub new_whitelist_input: String,
+    pub new_ban_input: String,
     
     // Mods manifests
     pub manifests: std::collections::HashMap<String, manifest::ModManifest>,
+    
+    // Async Events
+    pub api_tx: std::sync::mpsc::Sender<crate::api::ApiEvent>,
+    pub api_rx: std::sync::mpsc::Receiver<crate::api::ApiEvent>,
+    
+    // Asset Manager
+    pub asset_manager: crate::assets::AssetManager,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -59,12 +68,30 @@ impl HytaleSaveEditor {
         // Ensure image support
         egui_extras::install_image_loaders(&_cc.egui_ctx);
 
+        let (api_tx, api_rx) = std::sync::mpsc::channel();
+
         Self {
+            current_path: None,
+            active_tab: Tab::Dashboard,
+            permissions: None,
+            mods_config: None,
+            whitelist: None,
+            bans: None,
+            client_metadata: None,
+            memories: None,
+            players: None,
+            worlds: None,
+            preview_image: None,
+            preview_image_data: None,
             profile_cache: crate::api::ProfileCache::default(),
             avatar_textures: std::collections::HashMap::new(),
             new_op_input: String::new(),
+            new_whitelist_input: String::new(),
+            new_ban_input: String::new(),
             manifests: std::collections::HashMap::new(),
-            ..Default::default()
+            api_tx,
+            api_rx,
+            asset_manager: crate::assets::AssetManager::new(),
         }
     }
 
@@ -270,6 +297,37 @@ impl eframe::App for HytaleSaveEditor {
         if let Some(data) = self.preview_image_data.take() {
             self.preview_image = Some(ctx.load_texture("preview", data, Default::default()));
         }
+
+        // Handle Async Events
+        while let Ok(event) = self.api_rx.try_recv() {
+            match event {
+                crate::api::ApiEvent::AddToWhitelist(uuid) => {
+                    if let Some(whitelist) = &mut self.whitelist {
+                        if !whitelist.list.contains(&uuid) {
+                            whitelist.list.push(uuid);
+                        }
+                    }
+                }
+                crate::api::ApiEvent::AddToBans(uuid) => {
+                     if let Some(bans) = &mut self.bans {
+                         // Check if already banned?
+                         if !bans.iter().any(|b| b.target == uuid) {
+                             bans.push(crate::models::bans::BanEntry {
+                                 target: uuid,
+                                 ban_type: "Global".to_string(), // Default
+                                 reason: "Banned by Editor".to_string(),
+                                 by: "Editor".to_string(),
+                                 timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64
+                             });
+                         }
+                     }
+                }
+                crate::api::ApiEvent::Error(msg) => {
+                    eprintln!("API Error: {}", msg);
+                    // Optionally show a toast or error message in UI
+                }
+            }
+        }
         
         // Process loaded avatars
         let mut avatars_to_load = Vec::new();
@@ -283,6 +341,9 @@ impl eframe::App for HytaleSaveEditor {
         for (uuid, image) in avatars_to_load {
             self.avatar_textures.insert(uuid.clone(), ctx.load_texture(&uuid, image, Default::default()));
         }
+
+        // Update Asset Manager (process background loads)
+        self.asset_manager.update(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -320,7 +381,13 @@ impl eframe::App for HytaleSaveEditor {
                 Tab::Mods => crate::gui::views::mods::show(ui, self),
                 Tab::Security => crate::gui::views::security::show(ui, self),
                 Tab::Memories => crate::gui::views::memories::show(ui, self),
-                Tab::Players => crate::gui::views::players::show(ui, self),
+                Tab::Players => {
+                    if let Some(players) = &mut self.players {
+                        crate::gui::views::players::show(ui, players, &mut self.asset_manager);
+                    } else {
+                        ui.label("No players loaded.");
+                    }
+                },
                 Tab::Worlds => crate::gui::views::worlds::show(ui, self),
             }
         });

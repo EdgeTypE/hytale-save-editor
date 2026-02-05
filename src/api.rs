@@ -16,6 +16,20 @@ pub struct ProfileCache {
     pub avatars: Arc<Mutex<HashMap<String, Option<egui::ColorImage>>>>,
 }
 
+// ... imports
+
+#[derive(Debug)]
+pub enum ApiEvent {
+    AddToWhitelist(String), // UUID
+    AddToBans(String),      // UUID
+    Error(String),
+}
+
+pub enum ResolveTarget {
+    Whitelist,
+    Ban,
+}
+
 impl Default for ProfileCache {
     fn default() -> Self {
         Self {
@@ -23,6 +37,37 @@ impl Default for ProfileCache {
             avatars: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+}
+
+pub fn resolve_profile_add(input: String, tx: std::sync::mpsc::Sender<ApiEvent>, ctx: egui::Context, target: ResolveTarget) {
+    // Determine if input is UUID or Username.
+    // Simple heuristic: UUID is 32 chars (hex) or 36 chars (dashes).
+    // Hytale/Minecraft UUIDs usually don't have dashes in some contexts but file has checks. 
+    // Crafthead API supports both.
+    
+    let url = format!("https://crafthead.net/hytale/profile/{}", input);
+    let request = ehttp::Request::get(&url);
+    
+    ehttp::fetch(request, move |response| {
+        if let Ok(response) = response {
+            if response.status == 200 {
+                if let Ok(profile) = serde_json::from_slice::<CraftheadProfile>(&response.bytes) {
+                    // Success, send UUID
+                     match target {
+                        ResolveTarget::Whitelist => { let _ = tx.send(ApiEvent::AddToWhitelist(profile.id)); },
+                        ResolveTarget::Ban => { let _ = tx.send(ApiEvent::AddToBans(profile.id)); },
+                    }
+                } else {
+                     let _ = tx.send(ApiEvent::Error("Failed to parse profile".to_string()));
+                }
+            } else {
+                 let _ = tx.send(ApiEvent::Error(format!("User not found (Status: {})", response.status)));
+            }
+        } else {
+             let _ = tx.send(ApiEvent::Error("Network request failed".to_string()));
+        }
+        ctx.request_repaint();
+    });
 }
 
 pub fn fetch_profile(uuid: String, cache: ProfileCache, ctx: egui::Context) {

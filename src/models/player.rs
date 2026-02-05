@@ -108,6 +108,10 @@ pub struct Inventory {
     pub utility: Option<Storage>,
     #[serde(rename = "Backpack")]
     pub backpack: Option<Storage>,
+    #[serde(rename = "Tool")]
+    pub tool: Option<Storage>,
+    #[serde(rename = "ActiveHotbarSlot", default)]
+    pub active_hotbar_slot: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -128,4 +132,6 @@ pub struct Item {
     pub quantity: i32,
     #[serde(rename = "Durability", default)]
     pub durability: Option<f64>,
+    #[serde(rename = "MaxDurability", default)]
+    pub max_durability: Option<f64>,
 }

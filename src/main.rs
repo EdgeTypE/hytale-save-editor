@@ -3,6 +3,7 @@
 mod models;
 mod gui;
 mod api;
+mod assets;
 
 use eframe::egui;
 

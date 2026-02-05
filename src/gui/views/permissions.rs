@@ -41,7 +41,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut HytaleSaveEditor) {
     ui.separator();
 
     // 3. Player List
-    egui::ScrollArea::vertical().id_source("permissions_scroll").max_height(400.0).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt("permissions_scroll").max_height(400.0).show(ui, |ui| {
         for uuid in all_uuids {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
