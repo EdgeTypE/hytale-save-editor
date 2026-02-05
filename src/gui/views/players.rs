@@ -23,7 +23,12 @@ pub fn show(ui: &mut egui::Ui, players: &mut std::collections::HashMap<String, c
                     if let Some(player_comp) = &mut data.components.player {
                         ui.horizontal(|ui| {
                              ui.label("Game Mode:");
-                             ui.text_edit_singleline(&mut player_comp.game_mode);
+                             egui::ComboBox::from_id_salt(format!("gm_{}", uuid))
+                                .selected_text(&player_comp.game_mode)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut player_comp.game_mode, "Adventure".to_string(), "Adventure");
+                                    ui.selectable_value(&mut player_comp.game_mode, "Creative".to_string(), "Creative");
+                                });
                         });
                     }
                 });
