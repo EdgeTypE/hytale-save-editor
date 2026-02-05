@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "PascalCase")]
 pub struct BanEntry {
     #[serde(rename = "type")]
     pub ban_type: String,

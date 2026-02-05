@@ -105,8 +105,9 @@ impl HytaleSaveEditor {
     fn load_data(&mut self, path: PathBuf) {
         self.permissions = load_json(path.join("permissions.json"));
         self.mods_config = load_json(path.join("config.json"));
-        self.whitelist = load_json(path.join("whitelist.json"));
-        self.bans = load_json(path.join("bans.json"));
+        self.whitelist = load_json(path.join("whitelist.json")).or(Some(Default::default()));
+        self.bans = load_json(path.join("bans.json")).or(Some(Default::default()));
+        self.bans = load_json(path.join("bans.json")).or(Some(Default::default()));
         self.client_metadata = load_json(path.join("client_metadata.json"));
         self.memories = load_json(path.join("universe").join("memories.json"));
 
