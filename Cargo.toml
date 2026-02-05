@@ -2,6 +2,7 @@
 name = "hytale-save-editor"
 version = "0.1.0"
 edition = "2021"
+default-run = "hytale-save-editor"
 
 [dependencies]
 eframe = { version = "0.30", features = ["default", "persistence"] }
