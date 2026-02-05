@@ -36,31 +36,36 @@ impl AssetManager {
         
         // Spawn background worker
         thread::spawn(move || {
-            let mut assets_path: Option<PathBuf> = None;
+            let mut hytale_user_data: Option<PathBuf> = None;
             
-            // Try to detect path in background or wait for it? 
-            // Better to detect it once here or pass it in. 
-            // For simplicity, let's re-detect or pass it. 
-            // Passing is hard since we spawn in default/new.
-            // Let's implement robust detection here.
-            
-            if let Some(appdata) = dirs::config_dir().and_then(|p| p.parent().map(|p| p.join("Roaming"))) {
-                let path = appdata.join("Hytale/install/release/package/game/latest/Assets.zip");
-                if path.exists() {
-                     assets_path = Some(path);
-                }
-            }
-            if assets_path.is_none() {
-                 let path = PathBuf::from(r"C:\Users\Edige\AppData\Roaming\Hytale\install\release\package\game\latest\Assets.zip");
-                 if path.exists() {
-                     assets_path = Some(path);
+            // Try dirs crate first (Standard)
+            if let Some(config_dir) = dirs::config_dir() {
+                 let candidate = config_dir.join("Hytale");
+                 if candidate.exists() {
+                     hytale_user_data = Some(candidate);
                  }
             }
-
-            // Keep archive open? No, `zip` crate takes ownership of file often or borrows.
-            // We can keep `Option<ZipArchive<File>>`.
-            // But we need to handle "path not found" initially.
             
+            // Fallback to Env var if dirs fails or path doesn't exist there
+            if hytale_user_data.is_none() {
+                if let Ok(appdata) = std::env::var("APPDATA") {
+                    let candidate = PathBuf::from(appdata).join("Hytale");
+                    if candidate.exists() {
+                        hytale_user_data = Some(candidate);
+                    }
+                }
+            }
+
+            let assets_path = hytale_user_data.clone().map(|p| p.join("install/release/package/game/latest/Assets.zip"));
+            let mods_path = hytale_user_data.clone().map(|p| p.join("UserData/Mods")); // Assuming this path
+            
+            // Cache Dir: "assets" folder in the current working directory (Project Root during dev, Exe dir during release)
+            let cache_dir = std::env::current_dir().unwrap_or_default().join("assets");
+                
+            if !cache_dir.exists() {
+                let _ = std::fs::create_dir_all(&cache_dir);
+            }
+
             let mut archive_opt = None;
             if let Some(path) = &assets_path {
                  if let Ok(file) = std::fs::File::open(path) {
@@ -71,32 +76,24 @@ impl AssetManager {
             }
 
             while let Ok(item_id) = request_rx.recv() {
-                if let Some(archive) = &mut archive_opt {
-                    let image_data = load_icon_from_archive(archive, &item_id);
-                    let _ = result_tx.send((item_id, image_data));
-                } else {
-                    // Try to init if not ready (re-check path if we allowed setting it later)
-                    // For now, just fail
-                    let _ = result_tx.send((item_id, None));
-                }
+                let image_data = load_icon(&mut archive_opt, &item_id, &cache_dir, &mods_path);
+                let _ = result_tx.send((item_id, image_data));
             }
         });
 
         let mut manager = Self {
-            hytale_assets_path: None, // We don't really need this in main thread anymore except for UI display
+            hytale_assets_path: None, 
             texture_cache: HashMap::new(),
             pending_requests: HashSet::new(),
             request_tx,
             result_rx,
         };
         
-        // Populate path for UI (this is just for display now)
         manager.detect_hytale_assets();
         manager
     }
 
     pub fn detect_hytale_assets(&mut self) {
-        // Just for UI display, worker detects its own
          if let Some(appdata) = dirs::config_dir().and_then(|p| p.parent().map(|p| p.join("Roaming"))) {
              let path = appdata.join("Hytale/install/release/package/game/latest/Assets.zip");
              if path.exists() {
@@ -133,75 +130,201 @@ impl AssetManager {
     }
 }
 
-// Helper function to extract icon - runs in background thread
-fn load_icon_from_archive(archive: &mut zip::ZipArchive<std::fs::File>, item_id: &str) -> Option<egui::ColorImage> {
-    // 1. Find JSON Index
-    let json_name = format!("{}.json", item_id);
-    let mut json_index = None;
-    
-    // Optimization: This linear scan is still slow per item. 
-    // Ideally we'd index once. But for "zamanla gelsin" (come over time), it's acceptable if it doesn't block UI.
-    // Indexing the whole zip takes time.
-    
-    for i in 0..archive.len() {
-        if let Ok(file) = archive.by_index(i) {
-             if let Some(name) = file.enclosed_name().and_then(|s| s.to_str()) {
-                 if name.ends_with(&json_name) || name.ends_with(&json_name.to_lowercase()) {
-                     json_index = Some(i);
-                     break; 
+    // Helper function to extract icon - runs in background thread
+    fn load_icon(
+        archive: &mut Option<zip::ZipArchive<std::fs::File>>,
+        item_id: &str,
+        cache_dir: &std::path::Path,
+        mods_dir: &Option<PathBuf>,
+    ) -> Option<egui::ColorImage> {
+        // 1. Check Cache
+        let safe_id = item_id.replace(":", "_"); 
+        let cache_path = cache_dir.join(format!("{}.png", safe_id));
+        
+        if cache_path.exists() {
+             if let Ok(image) = image::open(&cache_path) {
+                 let size = [image.width() as usize, image.height() as usize];
+                 let image_buffer = image.to_rgba8();
+                 let pixels = image_buffer.as_flat_samples();
+                 return Some(egui::ColorImage::from_rgba_unmultiplied(
+                     size,
+                     pixels.as_slice(),
+                 ));
+             }
+        }
+
+        // 2. Search Mods (Priority over base game?)
+        // Hytale mods: UserData/Mods/[ModName]/assets/...
+        // We need to look for {item_id}.json to find the icon path.
+        let mut icon_path_in_mod: Option<(PathBuf, String)> = None; // (ModRoot, RelativePath)
+        
+        if let Some(mods_path) = mods_dir {
+             if let Ok(entries) = std::fs::read_dir(mods_path) {
+                 for entry in entries.flatten() {
+                     let mod_root = entry.path();
+                     if mod_root.is_dir() {
+                         // Naive search for definition json: {item_id}.json
+                         // This is expensive if we do it for every item.
+                         // Optimization: AssetManager should ideally index mods once. 
+                         // For now, we search recursively for the JSON.
+                         if let Some(json_path) = find_file_recursive(&mod_root, &format!("{}.json", item_id)) {
+                             // Parse JSON
+                             if let Ok(content) = std::fs::read_to_string(&json_path) {
+                                  if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                                      if let Some(icon) = json.get("Icon").and_then(|v| v.as_str()) {
+                                          icon_path_in_mod = Some((mod_root.clone(), icon.to_string()));
+                                          break;
+                                      }
+                                  }
+                             }
+                         }
+                     }
                  }
              }
         }
+        
+        // Load from Mod if found
+        if let Some((mod_root, icon_relative_path)) = icon_path_in_mod {
+             // Try to find the icon file in the mod
+             // The icon path in JSON might be consistent "assets/textures/..." or just filename
+             let target_name = std::path::Path::new(&icon_relative_path)
+                .file_name().unwrap_or_default().to_string_lossy().to_string();
+                
+             if let Some(real_icon_path) = find_file_recursive(&mod_root, &target_name) {
+                 if let Ok(image) = image::open(&real_icon_path) {
+                     let _ = image.save(&cache_path); // Save to cache
+                     
+                     let size = [image.width() as usize, image.height() as usize];
+                     let image_buffer = image.to_rgba8();
+                     let pixels = image_buffer.as_flat_samples();
+                     return Some(egui::ColorImage::from_rgba_unmultiplied(
+                         size,
+                         pixels.as_slice(),
+                     ));
+                 }
+             }
+        }
+        
+        // 3. Search Base Game (Zip)
+        if let Some(archive) = archive {
+           if let Some(image) = load_icon_from_archive(archive, item_id) {
+               // Convert egui::ColorImage back to DynamicImage to save
+               // This is a bit inefficient (decode -> egui -> encode), but easiest with current helpers.
+               // Ideally load_icon_from_archive would return DynamicImage. 
+               // For now, let's reconstruct it to save.
+               
+               if let Some(img_buffer) = image::RgbaImage::from_raw(
+                   image.size[0] as u32, 
+                   image.size[1] as u32, 
+                   image.pixels.iter().flat_map(|c| c.to_array()).collect()
+               ) {
+                   let dynamic_image = image::DynamicImage::ImageRgba8(img_buffer);
+                   let _ = dynamic_image.save(&cache_path);
+               }
+               
+               return Some(image);
+           }
+        }
+        
+        None
     }
-    
-    let mut icon_path = None;
-    
-    if let Some(index) = json_index {
-        if let Ok(mut file) = archive.by_index(index) {
-            let mut s = String::new();
-            if file.read_to_string(&mut s).is_ok() {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&s) {
-                    if let Some(icon) = json.get("Icon").and_then(|v| v.as_str()) {
-                        icon_path = Some(icon.to_string());
+
+    fn find_file_recursive(dir: &std::path::Path, file_name: &str) -> Option<PathBuf> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(found) = find_file_recursive(&path, file_name) {
+                        return Some(found);
+                    }
+                } else {
+                    if let Some(name) = path.file_name() {
+                         if name.to_string_lossy().eq_ignore_ascii_case(file_name) {
+                             return Some(path);
+                         }
                     }
                 }
             }
         }
+        None
     }
-    
-    if let Some(path) = icon_path {
-         let target_path = path.replace("\\", "/");
-         let mut icon_index = None;
-         
-         for i in 0..archive.len() {
-             if let Ok(file) = archive.by_index(i) {
+
+    fn load_icon_from_archive(archive: &mut zip::ZipArchive<std::fs::File>, item_id: &str) -> Option<egui::ColorImage> {
+        // ... (existing logic) ...
+        // We should add saving to cache here if we want complete caching.
+        // For brevity in this diff, I'll essentially paste the old logic but add saving capability later 
+        // OR better: make this function return the Bytes/DynamicImage so the caller can save.
+        
+        // 1. Find JSON Index
+        let json_name = format!("{}.json", item_id);
+        let mut json_index = None;
+        
+        for i in 0..archive.len() {
+            if let Ok(file) = archive.by_index(i) {
                  if let Some(name) = file.enclosed_name().and_then(|s| s.to_str()) {
-                     if (name.to_lowercase().ends_with(&target_path.to_lowercase()) || 
-                        name.to_lowercase().contains(&target_path.to_lowercase())) && name.ends_with(".png") {
-                         icon_index = Some(i);
+                     if name.ends_with(&json_name) || name.ends_with(&json_name.to_lowercase()) {
+                         json_index = Some(i);
                          break;
                      }
                  }
-             }
-         }
-         
-         if let Some(index) = icon_index {
-             if let Ok(mut file) = archive.by_index(index) {
-                 let mut buffer = Vec::new();
-                 if file.read_to_end(&mut buffer).is_ok() {
-                      if let Ok(image) = image::load_from_memory(&buffer) {
-                          let size = [image.width() as usize, image.height() as usize];
-                          let image_buffer = image.to_rgba8();
-                          let pixels = image_buffer.as_flat_samples();
-                          return Some(egui::ColorImage::from_rgba_unmultiplied(
-                              size,
-                              pixels.as_slice(),
-                          ));
-                      }
+            }
+        }
+        
+        let mut icon_path = None;
+        if let Some(index) = json_index {
+            if let Ok(mut file) = archive.by_index(index) {
+                let mut s = String::new();
+                if file.read_to_string(&mut s).is_ok() {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&s) {
+                        if let Some(icon) = json.get("Icon").and_then(|v| v.as_str()) {
+                            icon_path = Some(icon.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        
+        if let Some(path) = icon_path {
+             let target_path = path.replace("\\", "/");
+             let mut icon_index = None;
+             
+             // Optimization: exact match first?
+             
+             for i in 0..archive.len() {
+                 if let Ok(file) = archive.by_index(i) {
+                     if let Some(name) = file.enclosed_name().and_then(|s| s.to_str()) {
+                         if (name.to_lowercase().ends_with(&target_path.to_lowercase()) || 
+                            name.to_lowercase().contains(&target_path.to_lowercase())) && name.ends_with(".png") {
+                             icon_index = Some(i);
+                             break;
+                         }
+                     }
                  }
              }
-         }
+             
+             if let Some(index) = icon_index {
+                 if let Ok(mut file) = archive.by_index(index) {
+                     let mut buffer = Vec::new();
+                     if file.read_to_end(&mut buffer).is_ok() {
+                          // HERE: Save to cache if we had the path. 
+                          // But we don't have safe access to `item_id` and `cache_dir` cleanly without passing more args.
+                          // Let's just return the image and `load_icon` wrapper can deal with saving if refactored.
+                          // For now, let's keep it simple: return image.
+                          
+                          if let Ok(image) = image::load_from_memory(&buffer) {
+                                // Save to Cache hack? No, let's do it properly next step if needed.
+                                
+                                let size = [image.width() as usize, image.height() as usize];
+                                let image_buffer = image.to_rgba8();
+                                let pixels = image_buffer.as_flat_samples();
+                                return Some(egui::ColorImage::from_rgba_unmultiplied(
+                                  size,
+                                  pixels.as_slice(),
+                                ));
+                          }
+                     }
+                 }
+             }
+        }
+        None
     }
-    
-    None
-}
