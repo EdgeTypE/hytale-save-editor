@@ -2,12 +2,24 @@ use eframe::egui;
 use std::path::PathBuf;
 use crate::models::*;
 
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum Language {
+    English,
+    Turkish,
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        Language::English
+    }
+}
+
 // New Struct for Save Summary
 pub struct SaveSummary {
     pub folder_name: String,
     pub path: PathBuf,
     pub display_name: String, // From config or folder name
-    pub preview_path: Option<PathBuf>,
+    // pub preview_path: Option<PathBuf>, // Removed to fix warning
     pub last_modified: std::time::SystemTime,
     pub preview_image_data: Option<egui::ColorImage>,
     pub texture_handle: Option<egui::TextureHandle>,
@@ -54,18 +66,25 @@ pub struct HytaleSaveEditor {
     pub asset_manager: crate::assets::AssetManager,
     
     // Auto-detected saves
+    // Auto-detected saves
     pub available_saves: Vec<SaveSummary>,
+
+    // Localization
+    pub language: Language,
 }
+
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Tab {
     Dashboard,
     Permissions,
     Mods,
+
     Security, // Whitelist & Bans
     Memories,
     Players,
     Worlds,
+    Settings,
 }
 
 impl Default for Tab {
@@ -106,7 +125,9 @@ impl HytaleSaveEditor {
             api_tx,
             api_rx,
             asset_manager: crate::assets::AssetManager::new(),
+
             available_saves: Self::detect_saves(),
+            language: Language::English,
         }
     }
 
@@ -121,7 +142,7 @@ impl HytaleSaveEditor {
                              if let Some(name) = entry.file_name().to_str() {
                                  let path = entry.path();
                                  let mut display_name = name.to_string();
-                                 let mut preview_path = None;
+                                 // let mut preview_path = None;
                                  let mut last_modified = std::time::SystemTime::UNIX_EPOCH;
 
                                  // Get modification time
@@ -150,14 +171,14 @@ impl HytaleSaveEditor {
                                  let mut preview_image_data = None;
                                  if p_path.exists() {
                                      preview_image_data = Self::load_image_data(&p_path);
-                                     preview_path = Some(p_path);
+                                     // preview_path = Some(p_path);
                                  }
 
                                  saves.push(SaveSummary {
                                      folder_name: name.to_string(),
                                      path,
                                      display_name,
-                                     preview_path,
+                                     // preview_path,
                                      last_modified,
                                      preview_image_data,
                                      texture_handle: None,
@@ -464,6 +485,27 @@ impl eframe::App for HytaleSaveEditor {
             });
         });
 
+        // Global Footer (Moved from Dashboard to here for consistency and layout safe)
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            egui::Frame::none()
+                .fill(ui.visuals().window_fill()) 
+                .inner_margin(5.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                         ui.label(egui::RichText::new("Hytale Save Editor").strong().size(12.0));
+                         ui.label(egui::RichText::new("by EdgeTypE").weak().size(10.0));
+                         
+                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.hyperlink_to(
+                                egui::RichText::new("GitHub").color(egui::Color32::from_rgb(100, 149, 237)), 
+                                "https://github.com/EdgeTypE/hytale-save-editor"
+                            );
+                        });
+                    });
+                });
+        });
+
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
              ui.heading("Menu");
              ui.separator();
@@ -474,6 +516,8 @@ impl eframe::App for HytaleSaveEditor {
              if ui.selectable_value(&mut self.active_tab, Tab::Memories, "Memories").clicked() {};
              if ui.selectable_value(&mut self.active_tab, Tab::Players, "Players").clicked() {};
              if ui.selectable_value(&mut self.active_tab, Tab::Worlds, "Worlds").clicked() {};
+             ui.separator();
+             if ui.selectable_value(&mut self.active_tab, Tab::Settings, "Settings").clicked() {};
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -491,6 +535,7 @@ impl eframe::App for HytaleSaveEditor {
                     }
                 },
                 Tab::Worlds => crate::gui::views::worlds::show(ui, self),
+                Tab::Settings => crate::gui::views::settings::show(ui, self),
             }
         });
     }

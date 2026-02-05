@@ -4,69 +4,69 @@ use std::collections::HashMap;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WorldConfig {
     #[serde(rename = "Version")]
-    pub version: u32,
+    pub version: Option<u32>,
     #[serde(rename = "UUID")]
-    pub uuid: MongoUUID,
+    pub uuid: Option<MongoUUID>,
     #[serde(rename = "DisplayName")]
-    pub display_name: String,
+    pub display_name: String, // Keeping this mandatory as we need it for display
     #[serde(rename = "Seed")]
-    pub seed: i64,
+    pub seed: Option<i64>,
     #[serde(rename = "SpawnProvider")]
-    pub spawn_provider: SpawnProvider,
+    pub spawn_provider: Option<SpawnProvider>,
     #[serde(rename = "WorldGen")]
-    pub world_gen: WorldGen,
+    pub world_gen: Option<WorldGen>,
     #[serde(rename = "WorldMap")]
-    pub world_map: WorldMap,
+    pub world_map: Option<WorldMap>,
     #[serde(rename = "ChunkStorage")]
-    pub chunk_storage: ChunkStorage,
+    pub chunk_storage: Option<ChunkStorage>,
     #[serde(rename = "ChunkConfig")]
-    pub chunk_config: HashMap<String, serde_json::Value>,
+    pub chunk_config: Option<HashMap<String, serde_json::Value>>,
     #[serde(rename = "IsTicking")]
-    pub is_ticking: bool,
+    pub is_ticking: Option<bool>,
     #[serde(rename = "IsBlockTicking")]
-    pub is_block_ticking: bool,
+    pub is_block_ticking: Option<bool>,
     #[serde(rename = "IsPvpEnabled")]
-    pub is_pvp_enabled: bool,
+    pub is_pvp_enabled: Option<bool>,
     #[serde(rename = "IsFallDamageEnabled")]
-    pub is_fall_damage_enabled: bool,
+    pub is_fall_damage_enabled: Option<bool>,
     #[serde(rename = "IsGameTimePaused")]
-    pub is_game_time_paused: bool,
+    pub is_game_time_paused: Option<bool>,
     #[serde(rename = "GameTime")]
-    pub game_time: String,
+    pub game_time: Option<String>,
     #[serde(rename = "ClientEffects")]
-    pub client_effects: ClientEffects,
+    pub client_effects: Option<ClientEffects>,
     #[serde(rename = "RequiredPlugins")]
-    pub required_plugins: HashMap<String, serde_json::Value>,
+    pub required_plugins: Option<HashMap<String, serde_json::Value>>,
     #[serde(rename = "GameMode")]
-    pub game_mode: String,
+    pub game_mode: Option<String>,
     #[serde(rename = "IsSpawningNPC")]
-    pub is_spawning_npc: bool,
+    pub is_spawning_npc: Option<bool>,
     #[serde(rename = "IsSpawnMarkersEnabled")]
-    pub is_spawn_markers_enabled: bool,
+    pub is_spawn_markers_enabled: Option<bool>,
     #[serde(rename = "IsAllNPCFrozen")]
-    pub is_all_npc_frozen: bool,
+    pub is_all_npc_frozen: Option<bool>,
     #[serde(rename = "GameplayConfig")]
-    pub gameplay_config: String,
+    pub gameplay_config: Option<String>,
     #[serde(rename = "IsCompassUpdating")]
-    pub is_compass_updating: bool,
+    pub is_compass_updating: Option<bool>,
     #[serde(rename = "IsSavingPlayers")]
-    pub is_saving_players: bool,
+    pub is_saving_players: Option<bool>,
     #[serde(rename = "IsSavingChunks")]
-    pub is_saving_chunks: bool,
+    pub is_saving_chunks: Option<bool>,
     #[serde(rename = "SaveNewChunks")]
-    pub save_new_chunks: bool,
+    pub save_new_chunks: Option<bool>,
     #[serde(rename = "IsUnloadingChunks")]
-    pub is_unloading_chunks: bool,
+    pub is_unloading_chunks: Option<bool>,
     #[serde(rename = "IsObjectiveMarkersEnabled")]
-    pub is_objective_markers_enabled: bool,
+    pub is_objective_markers_enabled: Option<bool>,
     #[serde(rename = "DeleteOnUniverseStart")]
-    pub delete_on_universe_start: bool,
+    pub delete_on_universe_start: Option<bool>,
     #[serde(rename = "DeleteOnRemove")]
-    pub delete_on_remove: bool,
+    pub delete_on_remove: Option<bool>,
     #[serde(rename = "ResourceStorage")]
-    pub resource_storage: ResourceStorage,
+    pub resource_storage: Option<ResourceStorage>,
     #[serde(rename = "Plugin")]
-    pub plugin: HashMap<String, serde_json::Value>,
+    pub plugin: Option<HashMap<String, serde_json::Value>>,
     
     #[serde(flatten)]
     pub other: HashMap<String, serde_json::Value>,

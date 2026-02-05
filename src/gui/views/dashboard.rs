@@ -118,28 +118,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut HytaleSaveEditor) {
         });
     }
     
-    // --- Footer ---
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        egui::Frame::none()
-            .fill(ui.visuals().window_fill()) // Slight background distinction
-            .inner_margin(10.0)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width()); // Force full width
-                ui.horizontal(|ui| {
-                     ui.label(egui::RichText::new("Hytale Save Editor").strong().size(14.0));
-                     ui.label(egui::RichText::new("by EdgeTypE").weak());
-                     
-                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.hyperlink_to(
-                            egui::RichText::new("GitHub Repository").color(egui::Color32::from_rgb(100, 149, 237)), // Cornflower Blue
-                            "https://github.com/EdgeTypE/hytale-save-editor"
-                        );
-                    });
-                });
-            });
-        ui.separator();
-    });
-
     // Execute Deferred Actions
     match action {
         DashboardAction::CloseActive => {

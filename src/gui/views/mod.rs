@@ -5,3 +5,4 @@ pub mod security;
 pub mod memories;
 pub mod players;
 pub mod worlds;
+pub mod settings;
