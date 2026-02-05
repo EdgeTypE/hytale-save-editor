@@ -158,24 +158,42 @@ impl AssetManager {
         // We need to look for {item_id}.json to find the icon path.
         let mut icon_path_in_mod: Option<(PathBuf, String)> = None; // (ModRoot, RelativePath)
         
+        // Check for JARs in mods folder logic
         if let Some(mods_path) = mods_dir {
              if let Ok(entries) = std::fs::read_dir(mods_path) {
                  for entry in entries.flatten() {
-                     let mod_root = entry.path();
-                     if mod_root.is_dir() {
-                         // Naive search for definition json: {item_id}.json
-                         // This is expensive if we do it for every item.
-                         // Optimization: AssetManager should ideally index mods once. 
-                         // For now, we search recursively for the JSON.
-                         if let Some(json_path) = find_file_recursive(&mod_root, &format!("{}.json", item_id)) {
-                             // Parse JSON
+                     let path = entry.path();
+                     
+                     // Case A: Mod is a Folder
+                     if path.is_dir() {
+                         if let Some(json_path) = find_file_recursive(&path, &format!("{}.json", item_id)) {
                              if let Ok(content) = std::fs::read_to_string(&json_path) {
                                   if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                                       if let Some(icon) = json.get("Icon").and_then(|v| v.as_str()) {
-                                          icon_path_in_mod = Some((mod_root.clone(), icon.to_string()));
+                                          icon_path_in_mod = Some((path.clone(), icon.to_string()));
                                           break;
                                       }
                                   }
+                             }
+                         }
+                     } 
+                     // Case B: Mod is a JAR file
+                     else if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("jar")) {
+                         if let Ok(file) = std::fs::File::open(&path) {
+                             if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                                 // Reuse the base game archive logic for this mod jar
+                                 if let Some(image) = load_icon_from_archive(&mut archive, item_id) {
+                                      // Save to cache
+                                      if let Some(img_buffer) = image::RgbaImage::from_raw(
+                                           image.size[0] as u32, 
+                                           image.size[1] as u32, 
+                                           image.pixels.iter().flat_map(|c| c.to_array()).collect()
+                                       ) {
+                                           let dynamic_image = image::DynamicImage::ImageRgba8(img_buffer);
+                                           let _ = dynamic_image.save(&cache_path);
+                                       }
+                                       return Some(image);
+                                 }
                              }
                          }
                      }
@@ -183,7 +201,7 @@ impl AssetManager {
              }
         }
         
-        // Load from Mod if found
+        // Load from Mod Folder if found (Case A continuation)
         if let Some((mod_root, icon_relative_path)) = icon_path_in_mod {
              // Try to find the icon file in the mod
              // The icon path in JSON might be consistent "assets/textures/..." or just filename
